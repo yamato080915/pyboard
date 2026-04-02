@@ -65,15 +65,17 @@ class RAWINPUTDEVICE(ctypes.Structure):
 		("dwFlags", wintypes.DWORD),
 		("hwndTarget", wintypes.HWND),
 	]
-class MouseDeltainput:
+class Mouseinput:
 	def __init__(self, hwnd):
 		self.dx = 0
 		self.dy = 0
+		self.buttons = set()
+		self.scroll = 0
 
 		rid = RAWINPUTDEVICE()
 		rid.usUsagePage = 0x01
-		rid.usUsage = 0x02  # mouse
-		rid.dwFlags = 0x00000100  # RIDEV_INPUTSINK
+		rid.usUsage = 0x02
+		rid.dwFlags = 0x00000100
 		rid.hwndTarget = hwnd
 
 		user32.RegisterRawInputDevices(ctypes.byref(rid), 1, ctypes.sizeof(rid))
@@ -88,24 +90,41 @@ class MouseDeltainput:
 		raw = ctypes.cast(buffer, ctypes.POINTER(RAWINPUT)).contents
 
 		if raw.header.dwType == 0:
-			self.dx += raw.mouse.lLastX
-			self.dy += raw.mouse.lLastY
+			mouse = raw.mouse
 
-class Mouseinput:
-	def __init__(self):
-		self.mouse_buttons = set()
-		self.mouse_scroll = 0
-		self.listener = mouse.Listener(on_click=self.on_click, on_scroll=self.on_scroll)
-		self.listener.start()
-	
-	def on_click(self, x, y, button, pressed):
-		if pressed:
-			self.mouse_buttons.add(button)
-		else:
-			self.mouse_buttons.discard(button)
+			self.dx += mouse.lLastX
+			self.dy += mouse.lLastY
 
-	def on_scroll(self, x, y, dx, dy):
-		self.mouse_scroll += dy
+			btn = mouse.ulButtons
+
+			if btn & 0x0001:
+				self.buttons.add("left")
+			if btn & 0x0002:
+				self.buttons.discard("left")
+
+			if btn & 0x0004:
+				self.buttons.add("right")
+			if btn & 0x0008:
+				self.buttons.discard("right")
+
+			if btn & 0x0010:
+				self.buttons.add("middle")
+			if btn & 0x0020:
+				self.buttons.discard("middle")
+
+			if btn & 0x0040:
+				self.buttons.add("x1")
+			if btn & 0x0080:
+				self.buttons.discard("x1")
+
+			if btn & 0x0100:
+				self.buttons.add("x2")
+			if btn & 0x0200:
+				self.buttons.discard("x2")
+
+			if btn & 0x0400:
+				wheel_delta = ctypes.c_short(mouse.usButtonData).value
+				self.scroll += wheel_delta
 
 key_layouts = [
 	[
@@ -129,8 +148,7 @@ class Widget(QWidget):
 	def __init__(self):
 		super().__init__()
 		self.keyinput = Keyinput()
-		self.mouseinput = Mouseinput()
-		self.posinput = MouseDeltainput(int(self.winId()))
+		self.posinput = Mouseinput(int(self.winId()))
 		self.trail = deque(maxlen=100)
 		self.virtual_mouse_pos = (460, 130)
 		self.key_size = 40
@@ -192,6 +210,15 @@ class Widget(QWidget):
 			painter.setPen(QPen(color, 3))
 			painter.drawLine(trail[i][0], trail[i][1], trail[i+1][0], trail[i+1][1])
 		
+		# ボタン状態表示
+		painter.setPen(QPen(QColor(255,255,255)))
+		text = f"L:{'●' if 'left' in self.posinput.buttons else '○'} "
+		text += f"R:{'●' if 'right' in self.posinput.buttons else '○'} "
+		text += f"M:{'●' if 'middle' in self.posinput.buttons else '○'} "
+		text += f"X1:{'●' if 'x1' in self.posinput.buttons else '○'} "
+		text += f"X2:{'●' if 'x2' in self.posinput.buttons else '○'}"
+
+		painter.drawText(330, 240, text)
 		
 	def _is_key_pressed(self, key_code):
 		pressed = self.keyinput.pressed_keys
