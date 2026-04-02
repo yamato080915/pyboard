@@ -69,7 +69,7 @@ class Widget(QWidget):
 		self.trail = deque(maxlen=60)
 		self.key_size = 40
 		self.key_spacing = 4
-		self.setMinimumSize(500, 260)
+		self.setMinimumSize(600, 260)
 
 		self.bg_color = QColor(0, 255, 0)
 		self.key_color = QColor(60, 60, 60)
@@ -102,6 +102,18 @@ class Widget(QWidget):
 				x_offset += key_width + self.key_spacing
 			
 			y_offset += self.key_size + self.key_spacing
+		
+		painter.setBrush(QBrush(QColor(20, 20, 20)))
+		painter.setPen(Qt.NoPen)
+		painter.drawRoundedRect(320, 0, 280, 260, 12, 12)
+
+		sens = 0.2
+		trail = [((x - self.trail[-1][0])*sens + 460, (y - self.trail[-1][1])*sens + 130) for x, y in self.trail]
+		for i in range(len(trail)-1):
+			alpha = int(255 * (i / len(trail)))
+			color = QColor(255, 0, 0, alpha)
+			painter.setPen(QPen(color, 3))
+			painter.drawLine(trail[i][0], trail[i][1], trail[i+1][0], trail[i+1][1])
 		
 	def _is_key_pressed(self, key_code):
 		pressed = self.keyinput.pressed_keys
