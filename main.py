@@ -1,4 +1,6 @@
 from pynput import keyboard, mouse
+import ctypes
+from ctypes import wintypes
 from PySide6.QtWidgets import *
 from PySide6.QtGui import QFont, QTextOption, QFontMetrics, QIcon, QPainter, QColor, QPen, QBrush, QLinearGradient
 from PySide6.QtCore import Qt, QFileInfo, QDir, QSettings, QRectF
@@ -23,16 +25,78 @@ class Keyinput:
 		except AttributeError:
 			self.pressed_keys.discard(str(key))
 
+user32 = ctypes.windll.user32
+
+WM_INPUT = 0x00FF
+RID_INPUT = 0x10000003
+import ctypes
+from ctypes import wintypes
+
+user32 = ctypes.windll.user32
+
+WM_INPUT = 0x00FF
+RID_INPUT = 0x10000003
+
+class RAWINPUTHEADER(ctypes.Structure):
+	_fields_ = [
+		("dwType", wintypes.DWORD),
+		("dwSize", wintypes.DWORD),
+		("hDevice", wintypes.HANDLE),
+		("wParam", wintypes.WPARAM),
+	]
+class RAWMOUSE(ctypes.Structure):
+	_fields_ = [
+		("usFlags", wintypes.USHORT),
+		("ulButtons", wintypes.ULONG),
+		("ulRawButtons", wintypes.ULONG),
+		("lLastX", wintypes.LONG),
+		("lLastY", wintypes.LONG),
+		("ulExtraInformation", wintypes.ULONG),
+	]
+class RAWINPUT(ctypes.Structure):
+	_fields_ = [
+		("header", RAWINPUTHEADER),
+		("mouse", RAWMOUSE),
+	]
+class RAWINPUTDEVICE(ctypes.Structure):
+	_fields_ = [
+		("usUsagePage", wintypes.USHORT),
+		("usUsage", wintypes.USHORT),
+		("dwFlags", wintypes.DWORD),
+		("hwndTarget", wintypes.HWND),
+	]
+class MouseDeltainput:
+	def __init__(self, hwnd):
+		self.dx = 0
+		self.dy = 0
+
+		rid = RAWINPUTDEVICE()
+		rid.usUsagePage = 0x01
+		rid.usUsage = 0x02  # mouse
+		rid.dwFlags = 0x00000100  # RIDEV_INPUTSINK
+		rid.hwndTarget = hwnd
+
+		user32.RegisterRawInputDevices(ctypes.byref(rid), 1, ctypes.sizeof(rid))
+
+	def handle_raw_input(self, lParam):
+		size = wintypes.UINT(0)
+		user32.GetRawInputData(lParam, RID_INPUT, None, ctypes.byref(size), ctypes.sizeof(RAWINPUTHEADER))
+
+		buffer = ctypes.create_string_buffer(size.value)
+		user32.GetRawInputData(lParam, RID_INPUT, buffer, ctypes.byref(size), ctypes.sizeof(RAWINPUTHEADER))
+
+		raw = ctypes.cast(buffer, ctypes.POINTER(RAWINPUT)).contents
+
+		if raw.header.dwType == 0:
+			self.dx += raw.mouse.lLastX
+			self.dy += raw.mouse.lLastY
+
 class Mouseinput:
 	def __init__(self):
-		self.mouse_pos = (0, 0)
 		self.mouse_buttons = set()
 		self.mouse_scroll = 0
-		self.listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click, on_scroll=self.on_scroll)
+		self.listener = mouse.Listener(on_click=self.on_click, on_scroll=self.on_scroll)
 		self.listener.start()
-	
-	def on_move(self, x, y):
-		self.mouse_pos = (x, y)
 	
 	def on_click(self, x, y, button, pressed):
 		if pressed:
@@ -66,7 +130,9 @@ class Widget(QWidget):
 		super().__init__()
 		self.keyinput = Keyinput()
 		self.mouseinput = Mouseinput()
-		self.trail = deque(maxlen=60)
+		self.posinput = MouseDeltainput(int(self.winId()))
+		self.trail = deque(maxlen=100)
+		self.virtual_mouse_pos = (460, 130)
 		self.key_size = 40
 		self.key_spacing = 4
 		self.setMinimumSize(600, 260)
@@ -77,8 +143,19 @@ class Widget(QWidget):
 		self.text_color = QColor(255, 255, 255)
 		self.border_color = QColor(80, 80, 80)
 	
+	def nativeEvent(self, eventType, message):
+		msg = ctypes.cast(int(message), ctypes.POINTER(ctypes.wintypes.MSG)).contents
+		if msg.message == WM_INPUT:
+			self.posinput.handle_raw_input(msg.lParam)
+		return False, 0
+
 	def paintEvent(self, event):
-		self.trail.append(self.mouseinput.mouse_pos)
+		dx = self.posinput.dx
+		dy = self.posinput.dy
+		self.posinput.dx = 0
+		self.posinput.dy = 0
+		self.virtual_mouse_pos = (self.virtual_mouse_pos[0] + dx, self.virtual_mouse_pos[1] + dy)
+		self.trail.append((self.virtual_mouse_pos[0], self.virtual_mouse_pos[1]))
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.Antialiasing)
 		painter.fillRect(self.rect(), self.bg_color)
@@ -106,7 +183,7 @@ class Widget(QWidget):
 		painter.setBrush(QBrush(QColor(20, 20, 20)))
 		painter.setPen(Qt.NoPen)
 		painter.drawRoundedRect(320, 0, 280, 260, 12, 12)
-
+	
 		sens = 0.2
 		trail = [((x - self.trail[-1][0])*sens + 460, (y - self.trail[-1][1])*sens + 130) for x, y in self.trail]
 		for i in range(len(trail)-1):
@@ -114,6 +191,7 @@ class Widget(QWidget):
 			color = QColor(255, 0, 0, alpha)
 			painter.setPen(QPen(color, 3))
 			painter.drawLine(trail[i][0], trail[i][1], trail[i+1][0], trail[i+1][1])
+		
 		
 	def _is_key_pressed(self, key_code):
 		pressed = self.keyinput.pressed_keys
@@ -156,7 +234,7 @@ class Window(QMainWindow):
 		self.setWindowTitle("PyBoard")
 		self.widget = Widget()
 		self.setCentralWidget(self.widget)
-		self.update_timer = self.startTimer(16)
+		self.update_timer = self.startTimer(10)
 	
 	def timerEvent(self, event):
 		self.widget.update()
