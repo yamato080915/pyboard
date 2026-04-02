@@ -136,11 +136,11 @@ class Widget(QWidget):
 		super().__init__()
 		self.keyinput = Keyinput()
 		self.mouinput = Mouseinput(int(self.winId()))
-		self.trail = deque(maxlen=100)
-		self.virtual_mouse_pos = (460, 130)
-		self.key_size = 40
-		self.key_spacing = 4
-		self.setMinimumSize(600, 260)
+		self.trail = deque(maxlen=1000//UPDATE)
+		self.virtual_mouse_pos = (WIN[0]-MOUSEPAD[0]//2, WIN[1]-MOUSEPAD[1]//2, 0)
+		self.key_size = KEYSIZE
+		self.key_spacing = KEYSPACING
+		self.setMinimumSize(WIN[0], WIN[1])
 
 		self.bg_color = QColor(0, 255, 0)
 		self.key_color = QColor(60, 60, 60)
@@ -159,15 +159,15 @@ class Widget(QWidget):
 		dy = self.mouinput.dy
 		self.mouinput.dx = 0
 		self.mouinput.dy = 0
-		self.virtual_mouse_pos = (self.virtual_mouse_pos[0] + dx, self.virtual_mouse_pos[1] + dy)
-		self.trail.append((self.virtual_mouse_pos[0], self.virtual_mouse_pos[1]))
+		self.virtual_mouse_pos = (self.virtual_mouse_pos[0] + dx, self.virtual_mouse_pos[1] + dy, 'left' in self.mouinput.buttons)
+		self.trail.append((self.virtual_mouse_pos[0], self.virtual_mouse_pos[1], self.virtual_mouse_pos[2]))
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.Antialiasing)
 		painter.fillRect(self.rect(), self.bg_color)
 
 		y_offset = 20
 		
-		for row_idx, row in enumerate(key_layouts[1]):
+		for row_idx, row in enumerate(key_layouts[MODE=="fps"]):
 			x_offset = 20
 			for key_data in row:
 				if key_data is None:
@@ -187,26 +187,46 @@ class Widget(QWidget):
 		
 		painter.setBrush(QBrush(QColor(20, 20, 20)))
 		painter.setPen(Qt.NoPen)
-		painter.drawRoundedRect(320, 0, 280, 260, 12, 12)
+		painter.drawRoundedRect(WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1], MOUSEPAD[0], MOUSEPAD[1], 12, 12)
+		if 'left' in self.mouinput.buttons:
+			painter.setBrush(QBrush(QColor(200, 200, 200)))
+			painter.setPen(Qt.NoPen)
+			painter.drawRect(WIN[0]-MOUSEPAD[0]+50, WIN[1]-MOUSEPAD[1], MOUSEPAD[0]//2-50, WIN[1]-MOUSEPAD[1]//3*2)
+		if 'right' in self.mouinput.buttons:
+			painter.setBrush(QBrush(QColor(200, 200, 200)))
+			painter.setPen(Qt.NoPen)
+			painter.drawRect(WIN[0]-MOUSEPAD[0]//2, WIN[1]-MOUSEPAD[1], MOUSEPAD[0]//2-50, WIN[1]-MOUSEPAD[1]//3*2)
+		if 'middle' in self.mouinput.buttons:
+			painter.setBrush(QBrush(QColor(150, 150, 150)))
+			painter.setPen(Qt.NoPen)
+			painter.drawRect(WIN[0]-MOUSEPAD[0]//2-25, WIN[1]-MOUSEPAD[1]+25, 50, WIN[1]-MOUSEPAD[1]//3*2-50)
+		if 'x1' in self.mouinput.buttons:
+			painter.setBrush(QBrush(QColor(200, 200, 200)))
+			painter.setPen(Qt.NoPen)
+			painter.drawRect(WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1]//2, 50, WIN[1]-MOUSEPAD[1]//3*2)
+		if 'x2' in self.mouinput.buttons:
+			painter.setBrush(QBrush(QColor(200, 200, 200)))
+			painter.setPen(Qt.NoPen)
+			painter.drawRect(WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1]//6*5, 50, WIN[1]-MOUSEPAD[1]//3*2)
+		if self.mouinput.scroll > 0:
+			painter.setBrush(QBrush(QColor(100, 100, 100)))
+			painter.setPen(Qt.NoPen)
+			painter.drawRect(WIN[0]-MOUSEPAD[0]//2-25, WIN[1]-MOUSEPAD[1]+25, 50, WIN[1]//2-MOUSEPAD[1]//3-25)
+		if self.mouinput.scroll < 0:
+			painter.setBrush(QBrush(QColor(100, 100, 100)))
+			painter.setPen(Qt.NoPen)
+			painter.drawRect(WIN[0]-MOUSEPAD[0]//2-25, WIN[1]//2*3-MOUSEPAD[1]//3*4, 50, WIN[1]//2-MOUSEPAD[1]//3-25)
 	
-		sens = 0.2
-		trail = [((x - self.trail[-1][0])*sens + 460, (y - self.trail[-1][1])*sens + 130) for x, y in self.trail]
+		trail = [((x - self.trail[-1][0])*SENS + WIN[0]-MOUSEPAD[0]//2, (y - self.trail[-1][1])*SENS + WIN[1]-MOUSEPAD[1]//2, z) for x, y, z in self.trail]
 		for i in range(len(trail)-1):
 			alpha = int(255 * (i / len(trail)))
-			color = QColor(255, 0, 0, alpha)
+			if trail[i][2]:
+				color = QColor(100, 150, 255, alpha)
+			else:
+				color = QColor(255, 0, 0, alpha)
 			painter.setPen(QPen(color, 3))
 			painter.drawLine(trail[i][0], trail[i][1], trail[i+1][0], trail[i+1][1])
 		
-		# ボタン状態表示
-		painter.setPen(QPen(QColor(255,255,255)))
-		text = f"L:{'●' if 'left' in self.mouinput.buttons else '○'} "
-		text += f"R:{'●' if 'right' in self.mouinput.buttons else '○'} "
-		text += f"M:{'●' if 'middle' in self.mouinput.buttons else '○'} "
-		text += f"X1:{'●' if 'x1' in self.mouinput.buttons else '○'} "
-		text += f"X2:{'●' if 'x2' in self.mouinput.buttons else '○'}"
-		text += str(self.mouinput.scroll)
-
-		painter.drawText(330, 240, text)
 		self.mouinput.scroll = 0
 		
 	def _is_key_pressed(self, key_code):
@@ -250,10 +270,27 @@ class Window(QMainWindow):
 		self.setWindowTitle("PyBoard")
 		self.widget = Widget()
 		self.setCentralWidget(self.widget)
-		self.update_timer = self.startTimer(10)
+		self.update_timer = self.startTimer(UPDATE)
 	
 	def timerEvent(self, event):
 		self.widget.update()
+
+MODE = "fps" # full or fps
+
+if MODE == "full":
+	UPDATE = 10
+	WIN = (1000, 300)
+	KEYSIZE = 40
+	KEYSPACING = 4
+	MOUSEPAD = (300, 300)
+	SENS = 0.1
+elif MODE == "fps":
+	UPDATE = 5
+	WIN = (720, 260)
+	KEYSIZE = 40
+	KEYSPACING = 4
+	MOUSEPAD = (400, 260)
+	SENS = 0.05
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
