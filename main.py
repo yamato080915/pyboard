@@ -7,24 +7,6 @@ from PySide6.QtCore import Qt, QFileInfo, QDir, QSettings, QRectF
 import sys
 from collections import deque
 
-class Keyinput:
-	def __init__(self):
-		self.pressed_keys = set()
-		self.listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
-		self.listener.start()
-	
-	def on_press(self, key):
-		try:
-			self.pressed_keys.add(key.char)
-		except AttributeError:
-			self.pressed_keys.add(str(key))
-	
-	def on_release(self, key):
-		try:
-			self.pressed_keys.discard(key.char)
-		except AttributeError:
-			self.pressed_keys.discard(str(key))
-
 user32 = ctypes.windll.user32
 
 WM_INPUT = 0x00FF
@@ -53,10 +35,24 @@ class RAWMOUSE(ctypes.Structure):
 		("lLastY", wintypes.LONG),
 		("ulExtraInformation", wintypes.ULONG),
 	]
+class RAWKEYBOARD(ctypes.Structure):
+	_fields_ = [
+		("MakeCode", wintypes.USHORT),
+		("Flags", wintypes.USHORT),
+		("Reserved", wintypes.USHORT),
+		("VKey", wintypes.USHORT),
+		("Message", wintypes.UINT),
+		("ExtraInformation", wintypes.ULONG),
+	]
+class RAWINPUT_UNION(ctypes.Union):
+	_fields_ = [
+		("mouse", RAWMOUSE),
+		("keyboard", RAWKEYBOARD),
+	]
 class RAWINPUT(ctypes.Structure):
 	_fields_ = [
 		("header", RAWINPUTHEADER),
-		("mouse", RAWMOUSE),
+		("data", RAWINPUT_UNION),
 	]
 class RAWINPUTDEVICE(ctypes.Structure):
 	_fields_ = [
@@ -65,6 +61,28 @@ class RAWINPUTDEVICE(ctypes.Structure):
 		("dwFlags", wintypes.DWORD),
 		("hwndTarget", wintypes.HWND),
 	]
+class Keyinput:
+	def __init__(self, hwnd=None):
+		self.pressed_keys = set()
+
+		rid = RAWINPUTDEVICE()
+		rid.usUsagePage = 0x01
+		rid.usUsage = 0x06
+		rid.dwFlags = 0x00000100
+		rid.hwndTarget = hwnd
+
+		user32.RegisterRawInputDevices(ctypes.byref(rid), 1, ctypes.sizeof(rid))
+	
+	def handle_raw_input(self, raw):
+		kb = raw.data.keyboard
+		vkey = kb.VKey
+		flags = kb.Flags
+
+		if flags & 0x01:
+			self.pressed_keys.discard(vkey)
+		else:
+			self.pressed_keys.add(vkey)
+
 class Mouseinput:
 	def __init__(self, hwnd):
 		self.dx = 0
@@ -85,7 +103,7 @@ class Mouseinput:
 		user32.GetRawInputData(lParam, RID_INPUT, buffer, ctypes.byref(size), ctypes.sizeof(RAWINPUTHEADER))
 		raw = ctypes.cast(buffer, ctypes.POINTER(RAWINPUT)).contents
 		if raw.header.dwType == 0:
-			mouse = raw.mouse
+			mouse = raw.data.mouse
 			self.dx += mouse.lLastX
 			self.dy += mouse.lLastY
 			btn = mouse.ulButtons
@@ -113,28 +131,37 @@ class Mouseinput:
 				wheel_delta = ctypes.c_short((btn >> 16) & 0xFFFF).value
 				self.scroll += wheel_delta
 
+key_nums = {
+	"Esc": 27, "F1": 112, "F2": 113, "F3": 114, "F4": 115, "F5": 116, "F6": 117, "F7": 118, "F8": 119, "F9": 120, "F10": 121, "F11": 122, "F12": 123,
+	"1": 49, "2": 50, "3": 51, "4": 52, "5": 53, "6": 54, "7": 55, "8": 56, "9": 57, "0": 48, "-": 189, "^": 222, "\\": 220, "BS": 8,
+	"Tab": 9, "Q": 81, "W": 87, "E": 69, "R": 82, "T": 84, "Y": 89, "U": 85, "I": 73, "O": 79, "P": 80, "@": 192, "[": 219, "Enter": 13, 
+	"Caps": 240, "A": 65, "S": 83, "D": 68, "F": 70, "G": 71, "H": 72, "J": 74, "K": 75, "L": 76, ";": 187, ":": 186, "]": 221,
+	"Shift": 16, "Z": 90, "X": 88, "C": 67, "V": 86, "B": 66, "N": 78, "M": 77, ",": 188, ".": 190, "/": 191,
+	"Ctrl": 17, "Win": 91, "Alt": 18, "Space": 32, "Menu": 93,
+}
+
 key_layouts = [
 	[
-		[("Esc", "Key.esc", 1.0), None, ("F1", "Key.f1", 1.0), ("F2", "Key.f2", 1.0), ("F3", "Key.f3", 1.0), ("F4", "Key.f4", 1.0), None, ("F5", "Key.f5", 1.0), ("F6", "Key.f6", 1.0), ("F7", "Key.f7", 1.0), ("F8", "Key.f8", 1.0), None, ("F9", "Key.f9", 1.0), ("F10", "Key.f10", 1.0), ("F11", "Key.f11", 1.0), ("F12", "Key.f12", 1.0)],
-		[("半角", "Key.caps_lock", 1.0), ("1", "1", 1.0), ("2", "2", 1.0), ("3", "3", 1.0), ("4", "4", 1.0), ("5", "5", 1.0), ("6", "6", 1.0), ("7", "7", 1.0), ("8", "8", 1.0), ("9", "9", 1.0), ("0", "0", 1.0), ("-", "-", 1.0), ("^", "^", 1.0), ("\\", "\\", 1.0), ("BS", "Key.backspace", 1.0)],
-		[("Tab", "Key.tab", 1.5), ("Q", "q", 1.0), ("W", "w", 1.0), ("E", "e", 1.0), ("R", "r", 1.0), ("T", "t", 1.0), ("Y", "y", 1.0), ("U", "u", 1.0), ("I", "i", 1.0), ("O", "o", 1.0), ("P", "p", 1.0), ("@", "@", 1.0), ("[", "[", 1.0), ("Enter", "Key.enter", 1.5)],
-		[("Caps", "Key.caps_lock", 1.75), ("A", "a", 1.0), ("S", "s", 1.0), ("D", "d", 1.0), ("F", "f", 1.0), ("G", "g", 1.0), ("H", "h", 1.0), ("J", "j", 1.0), ("K", "k", 1.0), ("L", "l", 1.0), (";", ";", 1.0), (":", ":", 1.0), ("]", "]", 1.0)],
-		[("Shift", "Key.shift_l", 2.25), ("Z", "z", 1.0), ("X", "x", 1.0), ("C", "c", 1.0), ("V", "v", 1.0), ("B", "b", 1.0), ("N", "n", 1.0), ("M", "m", 1.0), (",", ",", 1.0), (".", ".", 1.0), ("/", "/", 1.0), ("Shift", "Key.shift_r", 2.75)],
-		[("Ctrl", "Key.ctrl_l", 1.25), ("Win", "Key.cmd", 1.25), ("Alt", "Key.alt_l", 1.25), ("Space", "Key.space", 6.25), ("Alt", "Key.alt_r", 1.25), ("Win", "Key.cmd_r", 1.25), ("Menu", "Key.menu", 1.25), ("Ctrl", "Key.ctrl_r", 1.25)],
+		[("Esc", 1.0), 0.5, ("F1", 1.0), ("F2", 1.0), ("F3", 1.0), ("F4", 1.0), 0.5, ("F5", 1.0), ("F6", 1.0), ("F7", 1.0), ("F8", 1.0), 0.5, ("F9", 1.0), ("F10", 1.0), ("F11", 1.0), ("F12", 1.0)],
+		[1.0, ("1", 1.0), ("2", 1.0), ("3", 1.0), ("4", 1.0), ("5", 1.0), ("6", 1.0), ("7", 1.0), ("8", 1.0), ("9", 1.0), ("0", 1.0), ("-", 1.0), ("^", 1.0), ("\\", 1.0), ("BS", 1.0)],
+		[("Tab", 1.5), ("Q", 1.0), ("W", 1.0), ("E", 1.0), ("R", 1.0), ("T", 1.0), ("Y", 1.0), ("U", 1.0), ("I", 1.0), ("O", 1.0), ("P", 1.0), ("@", 1.0), ("[", 1.0), ("Enter", 1.5)],
+		[1.75, ("A", 1.0), ("S", 1.0), ("D", 1.0), ("F", 1.0), ("G", 1.0), ("H", 1.0), ("J", 1.0), ("K", 1.0), ("L", 1.0), (";", 1.0), (":", 1.0), ("]", 1.0)],
+		[("Shift", 2.25), ("Z", 1.0), ("X", 1.0), ("C", 1.0), ("V", 1.0), ("B", 1.0), ("N", 1.0), ("M", 1.0), (",", 1.0), (".", 1.0), ("/", 1.0), ("Shift", 2.75)],
+		[("Ctrl", 1.25), ("Win", 1.25), ("Alt", 1.25), ("Space", 6.25), ("Alt", 1.25), ("Win", 1.25), ("Menu", 1.25), ("Ctrl", 1.25)],
 	],
 	[
-		[None, None, ("1", "1", 1.0), ("2", "2", 1.0), ("3", "3", 1.0), ("4", "4", 1.0), ("5", "5", 1.0)],
-		[("Tab", "Key.tab", 1.5), ("Q", "q", 1.0), ("W", "w", 1.0), ("E", "e", 1.0), ("R", "r", 1.0), ("T", "t", 1.0)],
-		[("Caps", "Key.caps_lock", 1.75), ("A", "a", 1.0), ("S", "s", 1.0), ("D", "d", 1.0), ("F", "f", 1.0), ("G", "g", 1.0)],
-		[("Shift", "Key.shift_l", 2.25), ("Z", "z", 1.0), ("X", "x", 1.0), ("C", "c", 1.0), ("V", "v", 1.0)],
-		[("Ctrl", "Key.ctrl_l", 1.25), ("Win", "Key.cmd", 1.25), ("Alt", "Key.alt_l", 1.25), ("Space", "Key.space", 3)],
+		[1.0, ("1", 1.0), ("2", 1.0), ("3", 1.0), ("4", 1.0), ("5", 1.0)],
+		[("Tab", 1.5), ("Q", 1.0), ("W", 1.0), ("E", 1.0), ("R", 1.0), ("T", 1.0)],
+		[1.75, ("A", 1.0), ("S", 1.0), ("D", 1.0), ("F", 1.0), ("G", 1.0)],
+		[("Shift", 2.25), ("Z", 1.0), ("X", 1.0), ("C", 1.0), ("V", 1.0)],
+		[("Ctrl", 1.25), ("Win", 1.25), ("Alt", 1.25), ("Space", 3)],
 	]
 ]
 
 class Widget(QWidget):
 	def __init__(self):
 		super().__init__()
-		self.keyinput = Keyinput()
+		self.keyinput = Keyinput(int(self.winId()))
 		self.mouinput = Mouseinput(int(self.winId()))
 		self.trail = deque(maxlen=1000//UPDATE)
 		self.virtual_mouse_pos = (WIN[0]-MOUSEPAD[0]//2, WIN[1]-MOUSEPAD[1]//2, 0)
@@ -151,7 +178,19 @@ class Widget(QWidget):
 	def nativeEvent(self, eventType, message):
 		msg = ctypes.cast(int(message), ctypes.POINTER(ctypes.wintypes.MSG)).contents
 		if msg.message == WM_INPUT:
-			self.mouinput.handle_raw_input(msg.lParam)
+			size = wintypes.UINT(0)
+			user32.GetRawInputData(msg.lParam, RID_INPUT, None, ctypes.byref(size), ctypes.sizeof(RAWINPUTHEADER))
+
+			buffer = ctypes.create_string_buffer(size.value)
+			user32.GetRawInputData(msg.lParam, RID_INPUT, buffer, ctypes.byref(size), ctypes.sizeof(RAWINPUTHEADER))
+
+			raw = ctypes.cast(buffer, ctypes.POINTER(RAWINPUT)).contents
+
+			if raw.header.dwType == 0:
+				self.mouinput.handle_raw_input(msg.lParam)
+			elif raw.header.dwType == 1:
+				self.keyinput.handle_raw_input(raw)
+			
 		return False, 0
 
 	def paintEvent(self, event):
@@ -170,14 +209,14 @@ class Widget(QWidget):
 		for row_idx, row in enumerate(key_layouts[MODE=="fps"]):
 			x_offset = 20
 			for key_data in row:
-				if key_data is None:
-					x_offset += self.key_size * 0.5 + self.key_spacing
+				if type(key_data) is float:
+					x_offset += self.key_size*key_data + self.key_spacing
 					continue
 				
-				label, key_code, width_mult = key_data
+				label, width_mult = key_data
 				key_width = self.key_size * width_mult + self.key_spacing * (width_mult - 1)
 				
-				is_pressed = self._is_key_pressed(key_code)
+				is_pressed = self._is_key_pressed(key_nums[label])
 				
 				self._draw_key(painter, x_offset, y_offset, key_width, self.key_size, label, is_pressed)
 				
