@@ -1,18 +1,10 @@
-from pynput import keyboard, mouse
 import ctypes
 from ctypes import wintypes
 from PySide6.QtWidgets import *
-from PySide6.QtGui import QFont, QTextOption, QFontMetrics, QIcon, QPainter, QColor, QPen, QBrush, QLinearGradient
-from PySide6.QtCore import Qt, QFileInfo, QDir, QSettings, QRectF
+from PySide6.QtGui import QFont, QPainter, QColor, QPen, QBrush
+from PySide6.QtCore import Qt, QRectF
 import sys
 from collections import deque
-
-user32 = ctypes.windll.user32
-
-WM_INPUT = 0x00FF
-RID_INPUT = 0x10000003
-import ctypes
-from ctypes import wintypes
 
 user32 = ctypes.windll.user32
 
@@ -61,19 +53,29 @@ class RAWINPUTDEVICE(ctypes.Structure):
 		("dwFlags", wintypes.DWORD),
 		("hwndTarget", wintypes.HWND),
 	]
-class Keyinput:
+class Input:
 	def __init__(self, hwnd=None):
 		self.pressed_keys = set()
 
-		rid = RAWINPUTDEVICE()
-		rid.usUsagePage = 0x01
-		rid.usUsage = 0x06
-		rid.dwFlags = 0x00000100
-		rid.hwndTarget = hwnd
+		rid_key = RAWINPUTDEVICE()
+		rid_key.usUsagePage = 0x01
+		rid_key.usUsage = 0x06
+		rid_key.dwFlags = 0x00000100
+		rid_key.hwndTarget = hwnd
+		user32.RegisterRawInputDevices(ctypes.byref(rid_key), 1, ctypes.sizeof(rid_key))
 
-		user32.RegisterRawInputDevices(ctypes.byref(rid), 1, ctypes.sizeof(rid))
-	
-	def handle_raw_input(self, raw):
+		self.dx = 0
+		self.dy = 0
+		self.buttons = set()
+		self.scroll = 0
+		rid_mou = RAWINPUTDEVICE()
+		rid_mou.usUsagePage = 0x01
+		rid_mou.usUsage = 0x02
+		rid_mou.dwFlags = 0x00000100
+		rid_mou.hwndTarget = hwnd
+		user32.RegisterRawInputDevices(ctypes.byref(rid_mou), 1, ctypes.sizeof(rid_mou))
+
+	def handle_raw_keyboard_input(self, raw):
 		kb = raw.data.keyboard
 		vkey = kb.VKey
 		flags = kb.Flags
@@ -83,20 +85,7 @@ class Keyinput:
 		else:
 			self.pressed_keys.add(vkey)
 
-class Mouseinput:
-	def __init__(self, hwnd):
-		self.dx = 0
-		self.dy = 0
-		self.buttons = set()
-		self.scroll = 0
-		rid = RAWINPUTDEVICE()
-		rid.usUsagePage = 0x01
-		rid.usUsage = 0x02
-		rid.dwFlags = 0x00000100
-		rid.hwndTarget = hwnd
-		user32.RegisterRawInputDevices(ctypes.byref(rid), 1, ctypes.sizeof(rid))
-
-	def handle_raw_input(self, lParam):
+	def handle_raw_mouse_input(self, lParam):
 		size = wintypes.UINT(0)
 		user32.GetRawInputData(lParam, RID_INPUT, None, ctypes.byref(size), ctypes.sizeof(RAWINPUTHEADER))
 		buffer = ctypes.create_string_buffer(size.value)
@@ -161,12 +150,12 @@ key_layouts = [
 class Widget(QWidget):
 	def __init__(self):
 		super().__init__()
-		self.keyinput = Keyinput(int(self.winId()))
-		self.mouinput = Mouseinput(int(self.winId()))
+		self.input = Input(int(self.winId()))
 		self.trail = deque(maxlen=1000//UPDATE)
 		self.virtual_mouse_pos = (WIN[0]-MOUSEPAD[0]//2, WIN[1]-MOUSEPAD[1]//2, 0)
 		self.key_size = KEYSIZE
 		self.key_spacing = KEYSPACING
+		self.scroll_count = 0
 		self.setMinimumSize(WIN[0], WIN[1])
 
 		self.bg_color = QColor(0, 255, 0)
@@ -187,18 +176,18 @@ class Widget(QWidget):
 			raw = ctypes.cast(buffer, ctypes.POINTER(RAWINPUT)).contents
 
 			if raw.header.dwType == 0:
-				self.mouinput.handle_raw_input(msg.lParam)
+				self.input.handle_raw_mouse_input(msg.lParam)
 			elif raw.header.dwType == 1:
-				self.keyinput.handle_raw_input(raw)
+				self.input.handle_raw_keyboard_input(raw)
 			
 		return False, 0
 
 	def paintEvent(self, event):
-		dx = self.mouinput.dx
-		dy = self.mouinput.dy
-		self.mouinput.dx = 0
-		self.mouinput.dy = 0
-		self.virtual_mouse_pos = (self.virtual_mouse_pos[0] + dx, self.virtual_mouse_pos[1] + dy, 'left' in self.mouinput.buttons)
+		dx = self.input.dx
+		dy = self.input.dy
+		self.input.dx = 0
+		self.input.dy = 0
+		self.virtual_mouse_pos = (self.virtual_mouse_pos[0] + dx, self.virtual_mouse_pos[1] + dy, 'left' in self.input.buttons)
 		self.trail.append((self.virtual_mouse_pos[0], self.virtual_mouse_pos[1], self.virtual_mouse_pos[2]))
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.Antialiasing)
@@ -227,31 +216,31 @@ class Widget(QWidget):
 		painter.setBrush(QBrush(QColor(20, 20, 20)))
 		painter.setPen(Qt.NoPen)
 		painter.drawRoundedRect(WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1], MOUSEPAD[0], MOUSEPAD[1], 12, 12)
-		if 'left' in self.mouinput.buttons:
+		if 'left' in self.input.buttons:
 			painter.setBrush(QBrush(QColor(200, 200, 200)))
 			painter.setPen(Qt.NoPen)
 			painter.drawRect(WIN[0]-MOUSEPAD[0]+50, WIN[1]-MOUSEPAD[1], MOUSEPAD[0]//2-50, WIN[1]-MOUSEPAD[1]//3*2)
-		if 'right' in self.mouinput.buttons:
+		if 'right' in self.input.buttons:
 			painter.setBrush(QBrush(QColor(200, 200, 200)))
 			painter.setPen(Qt.NoPen)
 			painter.drawRect(WIN[0]-MOUSEPAD[0]//2, WIN[1]-MOUSEPAD[1], MOUSEPAD[0]//2-50, WIN[1]-MOUSEPAD[1]//3*2)
-		if 'middle' in self.mouinput.buttons:
+		if 'middle' in self.input.buttons:
 			painter.setBrush(QBrush(QColor(150, 150, 150)))
 			painter.setPen(Qt.NoPen)
 			painter.drawRect(WIN[0]-MOUSEPAD[0]//2-25, WIN[1]-MOUSEPAD[1]+25, 50, WIN[1]-MOUSEPAD[1]//3*2-50)
-		if 'x1' in self.mouinput.buttons:
+		if 'x1' in self.input.buttons:
 			painter.setBrush(QBrush(QColor(200, 200, 200)))
 			painter.setPen(Qt.NoPen)
 			painter.drawRect(WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1]//2, 50, WIN[1]-MOUSEPAD[1]//3*2)
-		if 'x2' in self.mouinput.buttons:
+		if 'x2' in self.input.buttons:
 			painter.setBrush(QBrush(QColor(200, 200, 200)))
 			painter.setPen(Qt.NoPen)
 			painter.drawRect(WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1]//6*5, 50, WIN[1]-MOUSEPAD[1]//3*2)
-		if self.mouinput.scroll > 0:
+		if self.input.scroll > 0:
 			painter.setBrush(QBrush(QColor(100, 100, 100)))
 			painter.setPen(Qt.NoPen)
 			painter.drawRect(WIN[0]-MOUSEPAD[0]//2-25, WIN[1]-MOUSEPAD[1]+25, 50, WIN[1]//2-MOUSEPAD[1]//3-25)
-		if self.mouinput.scroll < 0:
+		if self.input.scroll < 0:
 			painter.setBrush(QBrush(QColor(100, 100, 100)))
 			painter.setPen(Qt.NoPen)
 			painter.drawRect(WIN[0]-MOUSEPAD[0]//2-25, WIN[1]//2*3-MOUSEPAD[1]//3*4, 50, WIN[1]//2-MOUSEPAD[1]//3-25)
@@ -266,20 +255,16 @@ class Widget(QWidget):
 			painter.setPen(QPen(color, 3))
 			painter.drawLine(trail[i][0], trail[i][1], trail[i+1][0], trail[i+1][1])
 		
-		self.mouinput.scroll = 0
-		
+		self.scroll_count += 1
+		if self.scroll_count == 125//UPDATE:
+			self.input.scroll = 0
+			self.scroll_count = 0
+
 	def _is_key_pressed(self, key_code):
-		pressed = self.keyinput.pressed_keys
+		pressed = self.input.pressed_keys
 		
 		if key_code in pressed:
 			return True
-		
-		if key_code == "Key.shift_l" or key_code == "Key.shift_r":
-			return "Key.shift" in pressed or "Key.shift_l" in pressed or "Key.shift_r" in pressed
-		if key_code == "Key.ctrl_l" or key_code == "Key.ctrl_r":
-			return "Key.ctrl" in pressed or "Key.ctrl_l" in pressed or "Key.ctrl_r" in pressed
-		if key_code == "Key.alt_l" or key_code == "Key.alt_r":
-			return "Key.alt" in pressed or "Key.alt_l" in pressed or "Key.alt_r" in pressed
 		
 		return False
 
