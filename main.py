@@ -1,18 +1,10 @@
-from pynput import keyboard, mouse
 import ctypes
 from ctypes import wintypes
 from PySide6.QtWidgets import *
-from PySide6.QtGui import QFont, QTextOption, QFontMetrics, QIcon, QPainter, QColor, QPen, QBrush, QLinearGradient
-from PySide6.QtCore import Qt, QFileInfo, QDir, QSettings, QRectF
+from PySide6.QtGui import QFont, QPainter, QColor, QPen, QBrush
+from PySide6.QtCore import Qt, QRectF
 import sys
 from collections import deque
-
-user32 = ctypes.windll.user32
-
-WM_INPUT = 0x00FF
-RID_INPUT = 0x10000003
-import ctypes
-from ctypes import wintypes
 
 user32 = ctypes.windll.user32
 
@@ -273,13 +265,6 @@ class Widget(QWidget):
 		
 		if key_code in pressed:
 			return True
-		
-		if key_code == "Key.shift_l" or key_code == "Key.shift_r":
-			return "Key.shift" in pressed or "Key.shift_l" in pressed or "Key.shift_r" in pressed
-		if key_code == "Key.ctrl_l" or key_code == "Key.ctrl_r":
-			return "Key.ctrl" in pressed or "Key.ctrl_l" in pressed or "Key.ctrl_r" in pressed
-		if key_code == "Key.alt_l" or key_code == "Key.alt_r":
-			return "Key.alt" in pressed or "Key.alt_l" in pressed or "Key.alt_r" in pressed
 		
 		return False
 
