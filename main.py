@@ -195,7 +195,7 @@ class Widget(QWidget):
 
 		y_offset = 20
 		
-		for row_idx, row in enumerate(key_layouts[MODE=="fps"]):
+		for row in key_layouts[MODE=="fps"]:
 			x_offset = 20
 			for key_data in row:
 				if type(key_data) is float:
