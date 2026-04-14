@@ -75,50 +75,34 @@ class Input:
 		rid_mou.hwndTarget = hwnd
 		user32.RegisterRawInputDevices(ctypes.byref(rid_mou), 1, ctypes.sizeof(rid_mou))
 
-	def handle_raw_keyboard_input(self, raw):
-		kb = raw.data.keyboard
-		vkey = kb.VKey
-		flags = kb.Flags
+	def handle_raw_input(self, raw):
+		dwType = raw.header.dwType
+		if dwType == 1:
+			kb = raw.data.keyboard
+			vkey = kb.VKey
+			flags = kb.Flags
 
-		if flags & 0x01:
-			self.pressed_keys.discard(vkey)
-		else:
-			self.pressed_keys.add(vkey)
-
-	def handle_raw_mouse_input(self, lParam):
-		size = wintypes.UINT(0)
-		user32.GetRawInputData(lParam, RID_INPUT, None, ctypes.byref(size), ctypes.sizeof(RAWINPUTHEADER))
-		buffer = ctypes.create_string_buffer(size.value)
-		user32.GetRawInputData(lParam, RID_INPUT, buffer, ctypes.byref(size), ctypes.sizeof(RAWINPUTHEADER))
-		raw = ctypes.cast(buffer, ctypes.POINTER(RAWINPUT)).contents
-		if raw.header.dwType == 0:
+			if flags & 0x01:
+				self.pressed_keys.discard(vkey)
+			else:
+				self.pressed_keys.add(vkey)
+		elif dwType == 0:
 			mouse = raw.data.mouse
 			self.dx += mouse.lLastX
 			self.dy += mouse.lLastY
 			btn = mouse.ulButtons
-			if btn & 0x0001:
-				self.buttons.add("left")
-			if btn & 0x0002:
-				self.buttons.discard("left")
-			if btn & 0x0004:
-				self.buttons.add("right")
-			if btn & 0x0008:
-				self.buttons.discard("right")
-			if btn & 0x0010:
-				self.buttons.add("middle")
-			if btn & 0x0020:
-				self.buttons.discard("middle")
-			if btn & 0x0040:
-				self.buttons.add("x1")
-			if btn & 0x0080:
-				self.buttons.discard("x1")
-			if btn & 0x0100:
-				self.buttons.add("x2")
-			if btn & 0x0200:
-				self.buttons.discard("x2")
+			
+			for x, y in ((0x0001, "left"), (0x0004, "right"), (0x0010, "middle"), (0x0040, "x1"), (0x0100, "x2")):
+				if btn & x:
+					self.buttons.add(y)
+			for x, y in ((0x0002, "left"), (0x0008, "right"), (0x0020, "middle"), (0x0080, "x1"), (0x0200, "x2")):
+				if btn & x:
+					self.buttons.discard(y)
 			if btn & 0x0400:
 				wheel_delta = ctypes.c_short((btn >> 16) & 0xFFFF).value
 				self.scroll += wheel_delta
+		else:
+			return
 
 key_nums = {
 	"Esc": 27, "F1": 112, "F2": 113, "F3": 114, "F4": 115, "F5": 116, "F6": 117, "F7": 118, "F8": 119, "F9": 120, "F10": 121, "F11": 122, "F12": 123,
@@ -163,6 +147,10 @@ class Widget(QWidget):
 		self.key_pressed_color = QColor(100, 150, 255)
 		self.text_color = QColor(255, 255, 255)
 		self.border_color = QColor(80, 80, 80)
+		self.padbrush = QBrush(QColor(20, 20, 20))
+		self.mousebtnbrush = QBrush(QColor(200, 200, 200))
+		self.midbtnbrush = QBrush(QColor(150, 150, 150))
+		self.scrollbrush = QBrush(QColor(100, 100, 100))
 	
 	def nativeEvent(self, eventType, message):
 		msg = ctypes.cast(int(message), ctypes.POINTER(ctypes.wintypes.MSG)).contents
@@ -175,10 +163,7 @@ class Widget(QWidget):
 
 			raw = ctypes.cast(buffer, ctypes.POINTER(RAWINPUT)).contents
 
-			if raw.header.dwType == 0:
-				self.input.handle_raw_mouse_input(msg.lParam)
-			elif raw.header.dwType == 1:
-				self.input.handle_raw_keyboard_input(raw)
+			self.input.handle_raw_input(raw)
 			
 		return False, 0
 
@@ -213,38 +198,23 @@ class Widget(QWidget):
 			
 			y_offset += self.key_size + self.key_spacing
 		
-		painter.setBrush(QBrush(QColor(20, 20, 20)))
+		painter.setBrush(self.padbrush)
 		painter.setPen(Qt.NoPen)
 		painter.drawRoundedRect(WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1], MOUSEPAD[0], MOUSEPAD[1], 12, 12)
-		if 'left' in self.input.buttons:
-			painter.setBrush(QBrush(QColor(200, 200, 200)))
-			painter.setPen(Qt.NoPen)
-			painter.drawRect(WIN[0]-MOUSEPAD[0]+50, WIN[1]-MOUSEPAD[1], MOUSEPAD[0]//2-50, WIN[1]-MOUSEPAD[1]//3*2)
-		if 'right' in self.input.buttons:
-			painter.setBrush(QBrush(QColor(200, 200, 200)))
-			painter.setPen(Qt.NoPen)
-			painter.drawRect(WIN[0]-MOUSEPAD[0]//2, WIN[1]-MOUSEPAD[1], MOUSEPAD[0]//2-50, WIN[1]-MOUSEPAD[1]//3*2)
-		if 'middle' in self.input.buttons:
-			painter.setBrush(QBrush(QColor(150, 150, 150)))
-			painter.setPen(Qt.NoPen)
-			painter.drawRect(WIN[0]-MOUSEPAD[0]//2-25, WIN[1]-MOUSEPAD[1]+25, 50, WIN[1]-MOUSEPAD[1]//3*2-50)
-		if 'x1' in self.input.buttons:
-			painter.setBrush(QBrush(QColor(200, 200, 200)))
-			painter.setPen(Qt.NoPen)
-			painter.drawRect(WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1]//2, 50, WIN[1]-MOUSEPAD[1]//3*2)
-		if 'x2' in self.input.buttons:
-			painter.setBrush(QBrush(QColor(200, 200, 200)))
-			painter.setPen(Qt.NoPen)
-			painter.drawRect(WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1]//6*5, 50, WIN[1]-MOUSEPAD[1]//3*2)
-		if self.input.scroll > 0:
-			painter.setBrush(QBrush(QColor(100, 100, 100)))
-			painter.setPen(Qt.NoPen)
-			painter.drawRect(WIN[0]-MOUSEPAD[0]//2-25, WIN[1]-MOUSEPAD[1]+25, 50, WIN[1]//2-MOUSEPAD[1]//3-25)
-		if self.input.scroll < 0:
-			painter.setBrush(QBrush(QColor(100, 100, 100)))
-			painter.setPen(Qt.NoPen)
-			painter.drawRect(WIN[0]-MOUSEPAD[0]//2-25, WIN[1]//2*3-MOUSEPAD[1]//3*4, 50, WIN[1]//2-MOUSEPAD[1]//3-25)
-	
+		for i in [
+			('left' in self.input.buttons, self.mousebtnbrush, (WIN[0]-MOUSEPAD[0]+50, WIN[1]-MOUSEPAD[1], MOUSEPAD[0]//2-50, WIN[1]-MOUSEPAD[1]//3*2)),
+			('right' in self.input.buttons, self.mousebtnbrush, (WIN[0]-MOUSEPAD[0]//2, WIN[1]-MOUSEPAD[1], MOUSEPAD[0]//2-50, WIN[1]-MOUSEPAD[1]//3*2)),
+			('middle' in self.input.buttons, self.midbtnbrush, (WIN[0]-MOUSEPAD[0]//2-25, WIN[1]-MOUSEPAD[1]+25, 50, WIN[1]-MOUSEPAD[1]//3*2-50)),
+			('x1' in self.input.buttons, self.mousebtnbrush, (WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1]//2, 50, WIN[1]-MOUSEPAD[1]//3*2)),
+			('x2' in self.input.buttons, self.mousebtnbrush, (WIN[0]-MOUSEPAD[0], WIN[1]-MOUSEPAD[1]//6*5, 50, WIN[1]-MOUSEPAD[1]//3*2)),
+			(self.input.scroll > 0, self.scrollbrush, (WIN[0]-MOUSEPAD[0]//2-25, WIN[1]-MOUSEPAD[1]+25, 50, WIN[1]//2-MOUSEPAD[1]//3-25)),
+			(self.input.scroll < 0, self.scrollbrush, (WIN[0]-MOUSEPAD[0]//2-25, WIN[1]//2*3-MOUSEPAD[1]//3*4, 50, WIN[1]//2-MOUSEPAD[1]//3-25)),
+		]:
+			if i[0]:
+				painter.setBrush(i[1])
+				painter.setPen(Qt.NoPen)
+				painter.drawRect(i[2][0], i[2][1], i[2][2], i[2][3])
+		
 		trail = [((x - self.trail[-1][0])*SENS + WIN[0]-MOUSEPAD[0]//2, (y - self.trail[-1][1])*SENS + WIN[1]-MOUSEPAD[1]//2, z) for x, y, z in self.trail]
 		for i in range(len(trail)-1):
 			alpha = int(255 * (i / len(trail)))
