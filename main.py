@@ -135,7 +135,7 @@ class Widget(QWidget):
 	def __init__(self):
 		super().__init__()
 		self.input = Input(int(self.winId()))
-		self.trail = deque(maxlen=1000//UPDATE)
+		self.trail = deque(maxlen=1000//INPUT_MS)
 		self.virtual_mouse_pos = (WIN[0]-MOUSEPAD[0]//2, WIN[1]-MOUSEPAD[1]//2, 0)
 		self.key_size = KEYSIZE
 		self.key_spacing = KEYSPACING
@@ -170,13 +170,20 @@ class Widget(QWidget):
 			
 		return False, 0
 
-	def paintEvent(self, event):
+	def update_logic(self):
 		dx = self.input.dx
 		dy = self.input.dy
 		self.input.dx = 0
 		self.input.dy = 0
 		self.virtual_mouse_pos = (self.virtual_mouse_pos[0] + dx, self.virtual_mouse_pos[1] + dy, 'left' in self.input.buttons)
 		self.trail.append((self.virtual_mouse_pos[0], self.virtual_mouse_pos[1], self.virtual_mouse_pos[2]))
+		
+		self.scroll_count += 1
+		if self.scroll_count == 125//INPUT_MS:
+			self.input.scroll = 0
+			self.scroll_count = 0
+
+	def paintEvent(self, event):
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.Antialiasing)
 		painter.fillRect(self.rect(), self.bg_color)
@@ -227,11 +234,6 @@ class Widget(QWidget):
 				color = QColor(255, 0, 0, alpha)
 			painter.setPen(QPen(color, 3))
 			painter.drawLine(trail[i][0], trail[i][1], trail[i+1][0], trail[i+1][1])
-		
-		self.scroll_count += 1
-		if self.scroll_count == 125//UPDATE:
-			self.input.scroll = 0
-			self.scroll_count = 0
 
 	def _is_key_pressed(self, key_code):
 		pressed = self.input.pressed_keys
@@ -265,24 +267,30 @@ class Window(QMainWindow):
 		self.setWindowTitle("PyBoard")
 		self.widget = Widget()
 		self.setCentralWidget(self.widget)
-		self.update_timer = self.startTimer(UPDATE)
+		self.input_timer = self.startTimer(INPUT_MS)
+		self.update_timer = self.startTimer(UI_UPDATE)
 	
 	def timerEvent(self, event):
-		self.widget.update()
+		if event.timerId() == self.input_timer:
+			self.widget.update_logic()
+		elif event.timerId() == self.update_timer:
+			self.widget.update()
 
 MODE = "fps" # full or fps
 if len(sys.argv) > 1 and sys.argv[1] in ("full", "fps"):
 	MODE = sys.argv[1]
 
 if MODE == "full":
-	UPDATE = 10
+	INPUT_MS = 16
+	UI_UPDATE = 16
 	WIN = (1000, 300)
 	KEYSIZE = 40
 	KEYSPACING = 4
 	MOUSEPAD = (300, 300)
 	SENS = 0.1
 elif MODE == "fps":
-	UPDATE = 9
+	INPUT_MS = 5
+	UI_UPDATE = 16
 	WIN = (720, 260)
 	KEYSIZE = 40
 	KEYSPACING = 4
