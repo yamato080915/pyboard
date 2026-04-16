@@ -151,6 +151,9 @@ class Widget(QWidget):
 		self.mousebtnbrush = QBrush(QColor(200, 200, 200))
 		self.midbtnbrush = QBrush(QColor(150, 150, 150))
 		self.scrollbrush = QBrush(QColor(100, 100, 100))
+		
+		self.Font = QFont("Segoe UI", 9)
+		self.Font.setBold(True)
 	
 	def nativeEvent(self, eventType, message):
 		msg = ctypes.cast(int(message), ctypes.POINTER(ctypes.wintypes.MSG)).contents
@@ -253,9 +256,7 @@ class Widget(QWidget):
 		painter.drawRoundedRect(rect, 5, 5)
 		
 		painter.setPen(QPen(self.text_color))
-		font = QFont("Segoe UI", 9)
-		font.setBold(True)
-		painter.setFont(font)
+		painter.setFont(self.Font)
 		painter.drawText(rect, Qt.AlignCenter, label)
 
 class Window(QMainWindow):
@@ -270,6 +271,8 @@ class Window(QMainWindow):
 		self.widget.update()
 
 MODE = "fps" # full or fps
+if len(sys.argv) > 1 and sys.argv[1] in ("full", "fps"):
+	MODE = sys.argv[1]
 
 if MODE == "full":
 	UPDATE = 10
@@ -279,7 +282,7 @@ if MODE == "full":
 	MOUSEPAD = (300, 300)
 	SENS = 0.1
 elif MODE == "fps":
-	UPDATE = 5
+	UPDATE = 9
 	WIN = (720, 260)
 	KEYSIZE = 40
 	KEYSPACING = 4
