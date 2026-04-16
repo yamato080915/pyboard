@@ -296,6 +296,23 @@ elif MODE == "fps":
 	KEYSPACING = 4
 	MOUSEPAD = (400, 260)
 	SENS = 0.05
+if len(sys.argv) > 1:
+	for arg in sys.argv[1:]:
+		key, value = arg.split("=")
+		if key == "input_ms":
+			INPUT_MS = int(value)
+		elif key == "ui_update":
+			UI_UPDATE = int(value)
+		elif key == "win":
+			WIN = tuple(map(int, value.split(",")))
+		elif key == "keysize":
+			KEYSIZE = int(value)
+		elif key == "keyspacing":
+			KEYSPACING = int(value)
+		elif key == "mousepad":
+			MOUSEPAD = tuple(map(int, value.split(",")))
+		elif key == "sens":
+			SENS = float(value)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
